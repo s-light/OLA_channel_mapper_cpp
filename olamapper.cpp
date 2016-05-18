@@ -1,12 +1,12 @@
+// Copyright (c) 2016 Stefan Krüger
+// released under MIT (see LICENSE for details)
+
 // based on example from
 // http://docs.openlighting.org/ola/doc/latest/dmx_cpp_client_tutorial.html
 
 // build for local:
 // g++ -std=c++11 olamapper.cpp -o olamapper.out $(pkg-config --cflags --libs libola)
-// build for aria board:
-// only possible in build env.
-// copy to board:
-// scp olamapper.aria light@arai.loca:/home/light/OLA_channel_mapper_cpp
+
 
 
 #include <ola/DmxBuffer.h>
@@ -17,41 +17,151 @@
 #include <iostream>
 #include <fstream>
 
-static const unsigned int UNIVERSE_IN = 1;
-static const unsigned int UNIVERSE_OUT = 2;
+unsigned int universe_in = 1;
+unsigned int universe_out = 2;
+unsigned int channel_count = 240;
+static const unsigned int channel_count_MAX = 512;
 
 ola::client::OlaClientWrapper wrapper;
 ola::DmxBuffer channels_out;
 
-static const unsigned int channel_count = 240;
-int my_map[channel_count];
-// int my_map[];
-// int my_map[channel_count] = {
-//   -1, -1, -1, -1, 158, 159, -1, -1, -1, -1, 150, 151,
-//   -1, -1, -1, -1, 142, 143, -1, -1, -1, -1, 134, 135,
-//   156, 157, 154, 155, 152, 153, 148, 149, 146, 147, 144, 145,
-//   140, 141, 138, 139, 136, 137, 132, 133, 130, 131, 128, 129,
-//   -1, -1, -1, -1, 126, 127, -1, -1, -1, -1, 118, 119,
-//   -1, -1, -1, -1, 110, 111, -1, -1, -1, -1, 102, 103,
-//   124, 125, 122, 123, 120, 121, 116, 117, 114, 115, 112, 113,
-//   108, 109, 106, 107, 104, 105, 100, 101, 98, 99, 96, 97,
-//   -1, -1, -1, -1, 94, 95, -1, -1, -1, -1, 86, 87,
-//   -1, -1, -1, -1, 78, 79, -1, -1, -1, -1, 70, 71,
-//   92, 93, 90, 91, 88, 89, 84, 85, 82, 83, 80, 81,
-//   76, 77, 74, 75, 72, 73, 68, 69, 66, 67, 64, 65,
-//   -1, -1, -1, -1, 62, 63, -1, -1, -1, -1, 54, 55,
-//   -1, -1, -1, -1, 46, 47, -1, -1, -1, -1, 38, 39,
-//   60, 61, 58, 59, 56, 57, 52, 53, 50, 51, 48, 49,
-//   44, 45, 42, 43, 40, 41, 36, 37, 34, 35, 32, 33,
-//   -1, -1, -1, -1, 30, 31, -1, -1, -1, -1, 22, 23,
-//   -1, -1, -1, -1, 14, 15, -1, -1, -1, -1, 6, 7,
-//   28, 29, 26, 27, 24, 25, 20, 21, 18, 19, 16, 17,
-//   12, 13, 10, 11, 8, 9, 4, 5, 2, 3, 0, 1
-// };
+int my_map[channel_count_MAX];
 
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// configuration things
 
-// void read_map_from_file(std::string filename) {
-void read_map_from_file() {
+void parse_config_channels(std::string raw_channels) {
+  // get part between []
+  size_t start = raw_channels.find('[');
+  size_t end = raw_channels.find(']');
+  raw_channels = raw_channels.substr(start+1, (end-1)-start);
+  // std::cout << "raw_channels: '" << raw_channels << "'" << std::endl;
+  // split at every ', '
+  start = 0;
+  end = 0;
+  size_t map_index = 0;
+  while ( (end = raw_channels.find(", ", start)) != std::string::npos ) {
+    std::string element = raw_channels.substr(start, end - start);
+    start = end + 1;
+    // std::cout << element << std::endl;
+    // now we can convert the element string to a int
+    int value;
+    value = std::stoi(element);
+    my_map[map_index] = value;
+    map_index += 1;
+    // std::cout << value << std::endl;
+  }
+  // handle last element
+  std::string element = raw_channels.substr(start);
+  int value;
+  value = std::stoi(element);
+  my_map[map_index] = value;
+  map_index += 1;
+  // std::cout << value << std::endl;
+  // std::cout << map_index << std::endl;
+  // std::cout << my_map << std::endl;
+}
+
+void parse_config_map(std::string raw_input) {
+  // find "map": { "channels": [....]}
+  size_t start = std::string::npos;
+  start = raw_input.find("\"map\"");
+  // std::cout << "map start: '" << start << "'" << std::endl;
+  if (start != std::string::npos) {
+    // std::cout << "map found." << std::endl;
+    size_t start_channels = raw_input.find("\"channels\"", start);
+    // std::cout << "channels start: '" << start_channels << "'" << std::endl;
+    if (start_channels != std::string::npos) {
+      // std::cout << "channels found." << std::endl;
+      size_t end = raw_input.find('}', start_channels);
+      if (end != std::string::npos) {
+        // std::cout << "channels end found." << std::endl;
+        std::string channels_list = raw_input.substr(start+1, (end-1)-start);
+        // std::cout << "channels_list: '" << channels_list << "'" << std::endl;
+        parse_config_channels(channels_list);
+      } else {
+        std::cout
+          << "Error in Config Format: 'channels' section end not found."
+          << std::endl;
+      }
+    } else {
+      std::cout
+        << "Error in Config Format: 'channels' section not found."
+        << std::endl;
+    }
+  } else {
+    std::cout
+      << "Error in Config Format: 'map' section not found."
+      << std::endl;
+  }
+}
+
+int parse_value(std::string raw_input, std::string key_name) {
+  size_t start = std::string::npos;
+  size_t end = std::string::npos;
+  std::string value_raw;
+  int value = -1;
+
+  start = raw_input.find("\"" + key_name + "\"");
+  // std::cout << "start: '" << start << "'" << std::endl;
+  if (start != std::string::npos) {
+    end = raw_input.find_first_of(",}", start);
+    if (end != std::string::npos) {
+      // start + " + key_name + " + :
+      size_t value_content_start = start + 1 + key_name.length() + 1 + 1;
+      value_raw = raw_input.substr(
+        value_content_start,
+        (end)-value_content_start);
+      // std::cout << "value_raw: '" << value_raw << "'" << std::endl;
+      // now we can convert the element string to a int
+      value = std::stoi(value_raw);
+    } else {
+      std::cout
+        << "Error in Config Format: '"
+        << key_name
+        << "' value end not found."
+        << std::endl;
+    }
+  } else {
+    std::cout
+      << "Error in Config Format: '"
+      << key_name
+      << "' value not found."
+      << std::endl;
+  }
+
+  return value;
+}
+
+void parse_config_universe(std::string raw_input) {
+  // find "universe": { }
+  // std::cout << "raw_input: '" << raw_input << "'" << std::endl;
+  std::string key_name = "universe";
+  size_t start_section = raw_input.find("\""+key_name+"\"");
+  // std::cout << "start_section: '" << start_section << "'" << std::endl;
+  if (start_section != std::string::npos) {
+    size_t section_content_start = start_section + 1 + key_name.length();
+    std::string section_content = raw_input.substr(
+      section_content_start);
+    // find 'channel_count'
+    int channel_count = parse_value(section_content, "channel_count");
+    // find 'input'
+    int input = parse_value(section_content, "input");
+    // find 'output'
+    int output = parse_value(section_content, "output");
+    // done
+    std::cout << "channel_count: " << channel_count << std::endl;
+    std::cout << "input: " << input << std::endl;
+    std::cout << "output: " << output << std::endl;
+  } else {
+    std::cout
+      << "Error in Config Format: 'universe' section not found."
+      << std::endl;
+  }
+}
+
+// void read_config_from_file(std::string filename) {
+void read_config_from_file() {
   // std::string filename = "my_map.config";
   std::ifstream myfile("map.conf");
   if (myfile.is_open()) {
@@ -59,53 +169,35 @@ void read_map_from_file() {
     std::string raw_input;
     // read in all lines and combine theme.
     while ( std::getline(myfile, line) ) {
-      std::cout << line << '\n';
+      std::cout << line << std::endl;
       raw_input += line;
     }
     myfile.close();
+    std::cout << std::endl;
+    std::cout << std::endl;
+
+    // ------------------------------------------
     // now we can parse the input
     // std::cout << "raw_input: '" << raw_input << "'" << std::endl;
-    // get part between []
-    size_t start = raw_input.find('[');
-    size_t end = raw_input.find(']');
-    raw_input = raw_input.substr(start+1, (end-1)-start);
-    // std::cout << "raw_input: '" << raw_input << "'" << std::endl;
-    // split at every ', '
-    start = 0;
-    end = 0;
-    size_t map_index = 0;
-    while ( (end = raw_input.find(", ", start)) != std::string::npos ) {
-      std::string element = raw_input.substr(start, end - start);
-      start = end + 1;
-      // std::cout << element << std::endl;
-      // now we can convert the element string to a int
-      int value;
-      value = std::stoi(element);
-      my_map[map_index] = value;
-      map_index += 1;
-      // std::cout << value << std::endl;
-    }
-    // handle last element
-    std::string element = raw_input.substr(start);
-    int value;
-    value = std::stoi(element);
-    my_map[map_index] = value;
-    map_index += 1;
-    // std::cout << value << std::endl;
-    // std::cout << map_index << std::endl;
-    // std::cout << my_map << std::endl;
+
+    // search and extract map
+    std::cout << "parse_config_map.."<< std::endl;
+    parse_config_map(raw_input);
+
+    // search and extract universe information
+    std::cout << "parse_config_universe.."<< std::endl;
+    parse_config_universe(raw_input);
+
+    std::cout << "parsing done."<< std::endl;
+
   } else {
     std::cout << "Unable to open file."<< std::endl;
   }
 }
 
-// Called when universe registration completes.
-void RegisterComplete(const ola::client::Result& result) {
-  if (!result.Success()) {
-    OLA_WARN << "Failed to register universe: " << result.Error();
-  }
-}
 
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// mapping
 
 // map data to new channels and send frame
 void map_channels(const ola::DmxBuffer &data) {
@@ -124,9 +216,19 @@ void map_channels(const ola::DmxBuffer &data) {
   }
   // std::cout << "Send frame: " << std::endl << channels_out << std::endl;
   wrapper.GetClient()->SendDMX(
-    UNIVERSE_OUT,
+    universe_out,
     channels_out,
     ola::client::SendDMXArgs());
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ola things
+
+// Called when universe registration completes.
+void RegisterComplete(const ola::client::Result& result) {
+  if (!result.Success()) {
+    OLA_WARN << "Failed to register universe: " << result.Error();
+  }
 }
 
 // Called when new DMX data arrives.
@@ -139,12 +241,11 @@ void dmx_receive_frame(const ola::client::DMXMetadata &metadata,
   map_channels(data);
 }
 
-
 int main() {
   ola::InitLogging(ola::OLA_LOG_INFO, ola::OLA_LOG_STDERR);
   // read map from file:
-  // read_map_from_file("my_map.config");
-  read_map_from_file();
+  // read_config_from_file("my_map.config");
+  read_config_from_file();
 
   // ola::client::OlaClientWrapper wrapper; now global.
   if (!wrapper.Setup())
@@ -157,7 +258,7 @@ int main() {
   // Set the callback and register our interest in this universe
   client->SetDMXCallback(ola::NewCallback(&dmx_receive_frame));
   client->RegisterUniverse(
-    UNIVERSE_IN,
+    universe_in,
     ola::client::REGISTER,
     ola::NewSingleCallback(&RegisterComplete));
   std::cout << "map incoming channels." << std::endl;
