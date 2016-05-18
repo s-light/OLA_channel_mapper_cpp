@@ -163,7 +163,7 @@ void parse_config_universe(std::string raw_input) {
 // void read_config_from_file(std::string filename) {
 void read_config_from_file() {
   // std::string filename = "my_map.config";
-  std::ifstream myfile("map.conf");
+  std::ifstream myfile("map.json");
   if (myfile.is_open()) {
     std::string line;
     std::string raw_input;
