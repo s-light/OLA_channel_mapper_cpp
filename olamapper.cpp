@@ -12,7 +12,9 @@
 #include <ola/DmxBuffer.h>
 #include <ola/Logging.h>
 #include <ola/client/ClientWrapper.h>
+#include <ola/io/SelectServer.h>
 
+#include <unistd.h>
 #include <string>
 #include <iostream>
 #include <fstream>
@@ -22,10 +24,22 @@ unsigned int universe_out = 2;
 unsigned int channel_count = 240;
 static const unsigned int channel_count_MAX = 512;
 
-ola::client::OlaClientWrapper wrapper;
+  ola::client::OlaClientWrapper wrapper(false);
+ola::client::OlaClient *client;
 ola::DmxBuffer channels_out;
 
 int my_map[channel_count_MAX];
+
+
+enum ola_state_t {
+  state_undefined,
+  state_standby,
+  state_waiting,
+  state_connected,
+  state_running,
+};
+
+ola_state_t system_state = state_undefined;
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // configuration things
@@ -241,16 +255,49 @@ void dmx_receive_frame(const ola::client::DMXMetadata &metadata,
   map_channels(data);
 }
 
-int main() {
-  ola::InitLogging(ola::OLA_LOG_INFO, ola::OLA_LOG_STDERR);
-  // read map from file:
-  // read_config_from_file("my_map.config");
-  read_config_from_file();
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ola state helper
 
-  // ola::client::OlaClientWrapper wrapper; now global.
-  if (!wrapper.Setup())
-  exit(1);
-  ola::client::OlaClient *client = wrapper.GetClient();
+void ola_connection_closed(ola::io::SelectServer *ss) {
+  std::cerr << "Connection to olad was closed" << std::endl;
+  ss->Terminate();
+  system_state = state_waiting;
+}
+
+void ola_waiting_for_connection() {
+  bool flag_connected = false;
+  try {
+    std::cout << "try wrapper.Setup() " << std::endl;
+    bool available  = wrapper.Setup();
+    std::cout << "available: " << available << std::endl;
+    if (available) {
+      flag_connected = true;
+    }
+  }
+  // catch (const std::exception &exc) {
+  //   // catch anything thrown that derives from std::exception
+  //   std::cerr << exc.what();
+  //   std::cout << "error!!: " << exc.what() << std::endl;
+  // }
+  catch (...) {
+    // catch all
+    // sleep microseconds
+    // usleep(500000);
+    std::cout << "error!!: " << std::endl;
+  }
+  // }
+
+  if (flag_connected) {
+    client = wrapper.GetClient();
+    system_state = state_connected;
+  }
+}
+
+void ola_setup() {
+  client->SetCloseHandler(
+    ola::NewSingleCallback(
+      ola_connection_closed,
+      wrapper.GetSelectServer() ));
 
   // clean channels_out buffer
   channels_out.Blackout();
@@ -262,5 +309,47 @@ int main() {
     ola::client::REGISTER,
     ola::NewSingleCallback(&RegisterComplete));
   std::cout << "map incoming channels." << std::endl;
+
+  system_state = state_running;
+}
+
+void ola_run(/* arguments */) {
   wrapper.GetSelectServer()->Run();
+  system_state = state_waiting;
+}
+
+void ola_statemaschine() {
+  switch (system_state) {
+    case state_undefined : {
+      system_state = state_waiting;
+    } break;
+    case state_waiting : {
+      ola_waiting_for_connection();
+    } break;
+    case state_connected : {
+      ola_setup();
+    } break;
+    case state_running : {
+      // attention! blocks untill error..
+      ola_run();
+    } break;
+  }  // end switch
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// main
+
+int main() {
+  ola::InitLogging(ola::OLA_LOG_INFO, ola::OLA_LOG_STDERR);
+  // read map from file:
+  // read_config_from_file("my_map.config");
+  read_config_from_file();
+
+  // ola_statemaschine()
+  std::cout << "ola_waiting_for_connection()" << std::endl;
+  ola_waiting_for_connection();
+  std::cout << "ola_setup()" << std::endl;
+  ola_setup();
+  std::cout << "ola_run()" << std::endl;
+  ola_run();
 }
