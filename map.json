@@ -9,6 +9,7 @@
     },
     "universe": {
         "channel_count": 240,
+        "start_address": 1,
         "input": 1,
         "output": 2
     }

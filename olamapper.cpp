@@ -20,11 +20,12 @@
 #include <fstream>
 
 unsigned int universe_in = 1;
+unsigned int start_address = 1;
 unsigned int universe_out = 2;
 unsigned int channel_count = 240;
 static const unsigned int channel_count_MAX = 512;
 
-  ola::client::OlaClientWrapper wrapper(false);
+ola::client::OlaClientWrapper wrapper(false);
 ola::client::OlaClient *client;
 ola::DmxBuffer channels_out;
 
@@ -157,6 +158,8 @@ void parse_config_universe(std::string raw_input) {
     size_t section_content_start = start_section + 1 + key_name.length();
     std::string section_content = raw_input.substr(
       section_content_start);
+    // find 'start_address'
+    int start_address = parse_value(section_content, "start_address");
     // find 'channel_count'
     int channel_count = parse_value(section_content, "channel_count");
     // find 'input'
@@ -164,6 +167,7 @@ void parse_config_universe(std::string raw_input) {
     // find 'output'
     int output = parse_value(section_content, "output");
     // done
+    std::cout << "start_address: " << start_address << std::endl;
     std::cout << "channel_count: " << channel_count << std::endl;
     std::cout << "input: " << input << std::endl;
     std::cout << "output: " << output << std::endl;
@@ -177,7 +181,7 @@ void parse_config_universe(std::string raw_input) {
 // void read_config_from_file(std::string filename) {
 void read_config_from_file() {
   // std::string filename = "my_map.config";
-  std::ifstream myfile("map.json");
+  std::ifstream myfile("./map.json");
   if (myfile.is_open()) {
     std::string line;
     std::string raw_input;
