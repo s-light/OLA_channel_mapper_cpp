@@ -224,12 +224,14 @@ void map_channels(const ola::DmxBuffer &data) {
     channel_output_index < channel_count;
     channel_output_index++
   ) {
-    unsigned int map_value = my_map[channel_output_index];
+    int map_value = my_map[channel_output_index];
     // check if map_value is in range of input channels
-    if (map_value < data.Size()) {
-      channels_out.SetChannel(
-        channel_output_index,
-        data.Get(map_value));
+    if (map_value > -1) {
+        if (map_value < (int)data.Size()) {
+          channels_out.SetChannel(
+            channel_output_index,
+            data.Get(map_value));
+        }
     }
   }
   // std::cout << "Send frame: " << std::endl << channels_out << std::endl;
@@ -325,6 +327,9 @@ void ola_run(/* arguments */) {
 void ola_statemaschine() {
   switch (system_state) {
     case state_undefined : {
+      system_state = state_waiting;
+    } break;
+    case state_standby : {
       system_state = state_waiting;
     } break;
     case state_waiting : {
