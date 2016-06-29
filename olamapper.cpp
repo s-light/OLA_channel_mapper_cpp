@@ -225,8 +225,9 @@ void map_channels(const ola::DmxBuffer &data) {
     channel_output_index++
   ) {
     int map_value = my_map[channel_output_index];
-    // check if map_value is in range of input channels
+    // check if map_value is 
     if (map_value > -1) {
+        // check if map_value is in range of input channels
         if (map_value < (int)data.Size()) {
           channels_out.SetChannel(
             channel_output_index,
