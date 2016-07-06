@@ -245,29 +245,20 @@ void rescale_channels() {
       uint8_t value_l = 0;
       uint16_t value = 0;
 
-      std::cout << "chi: " << channel_output_index << "; ";
-
       // get channel values
       value_h = channels_out.Get(channel_output_index);
       value_l = channels_out.Get(channel_output_index+1);
-      std::cout << "value_h: " << (int)value_h << "; ";
-      std::cout << "value_l: " << (int)value_l << "; ";
 
       // combine to 16bit value
       value = (value_h << 8) | value_l;
-      std::cout << "value: " << (uint16_t)value << "; ";
 
       // rescale:
       uint32_t value_calc = value * universe_rescale_max;
-      std::cout << "value_calc: " << value_calc << "; ";
       value = value_calc / 65535;
-      std::cout << "value: " << value << "; ";
 
       // splitt to 8itt values
       value_h = value >> 8;
       value_l = value;
-      std::cout << "value_h: " << (int)value_h << "; ";
-      std::cout << "value_l: " << (int)value_l << "; ";
 
       // set channel values
       channels_out.SetChannel(
@@ -278,9 +269,6 @@ void rescale_channels() {
         channel_output_index+1,
         value_l
       );
-
-      // print line end
-      std::cout << std::endl;
   }
 }
 
