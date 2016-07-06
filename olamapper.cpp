@@ -19,11 +19,12 @@
 #include <iostream>
 #include <fstream>
 
-unsigned int universe_in = 1;
-unsigned int start_address = 1;
-unsigned int universe_out = 2;
-unsigned int channel_count = 240;
-static const unsigned int channel_count_MAX = 512;
+uint16_t universe_in = 1;
+uint16_t universe_in_start_address = 1;
+uint16_t universe_out = 2;
+uint16_t universe_channel_count = 240;
+uint16_t universe_rescale_max = 60000;
+static const uint16_t channel_count_MAX = 512;
 
 ola::client::OlaClientWrapper wrapper(false);
 ola::client::OlaClient *client;
@@ -41,6 +42,8 @@ enum ola_state_t {
 };
 
 ola_state_t system_state = state_undefined;
+
+bool flag_run = true;
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // configuration things
@@ -159,18 +162,33 @@ void parse_config_universe(std::string raw_input) {
     std::string section_content = raw_input.substr(
       section_content_start);
     // find 'start_address'
-    int start_address = parse_value(section_content, "start_address");
+    uint16_t u_start_address = parse_value(section_content, "start_address");
     // find 'channel_count'
-    int channel_count = parse_value(section_content, "channel_count");
+    uint16_t u_channel_count = parse_value(section_content, "channel_count");
     // find 'input'
-    int input = parse_value(section_content, "input");
+    uint16_t u_input = parse_value(section_content, "input");
     // find 'output'
-    int output = parse_value(section_content, "output");
+    uint16_t u_output = parse_value(section_content, "output");
+    // find 'rescale_max'
+    uint16_t u_rescale_max = parse_value(section_content, "rescale_max");
     // done
-    std::cout << "start_address: " << start_address << std::endl;
-    std::cout << "channel_count: " << channel_count << std::endl;
-    std::cout << "input: " << input << std::endl;
-    std::cout << "output: " << output << std::endl;
+    std::cout << "start_address: " << u_start_address << std::endl;
+    std::cout << "input: " << u_input << std::endl;
+    std::cout << "output: " << u_output << std::endl;
+    std::cout << "channel_count: " << u_channel_count << std::endl;
+    std::cout << "rescale_max: " << u_rescale_max << std::endl;
+    universe_in_start_address = u_start_address;
+    universe_in = u_input;
+    universe_out = u_output;
+    universe_channel_count = u_channel_count;
+    universe_rescale_max = u_rescale_max;
+    std::cout << "universe_in_start_address: " << universe_in_start_address << std::endl;
+    std::cout << "universe_in: " << universe_in << std::endl;
+    std::cout << "universe_out: " << universe_out << std::endl;
+    std::cout << "universe_channel_count: " << universe_channel_count << std::endl;
+    std::cout << "universe_rescale_max: " << universe_rescale_max << std::endl;
+
+
   } else {
     std::cout
       << "Error in Config Format: 'universe' section not found."
@@ -215,17 +233,54 @@ void read_config_from_file() {
 
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// helper
+
+void rescale_channels() {
+  for (
+    size_t channel_output_index = 0;
+    channel_output_index < universe_channel_count;
+    channel_output_index = channel_output_index +2
+  ) {
+      uint8_t value_h = 0;
+      uint8_t value_l = 0;
+      uint16_t value = 0;
+
+      // get channel values
+      value_h = channels_out.Get(channel_output_index);
+      value_l = channels_out.Get(channel_output_index+1);
+
+      // combine to 16bit value
+      value = (value_h << 8) || value_l;
+      uint32_t value_calc = value * universe_rescale_max;
+      value = value_calc / 65535;
+      // splitt to 8itt values
+      value_h = value >> 8;
+      value_l = value;
+
+      // set channel values
+      channels_out.SetChannel(
+        channel_output_index,
+        value_h
+      );
+      channels_out.SetChannel(
+        channel_output_index+1,
+        value_l
+      );
+  }
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // mapping
 
 // map data to new channels and send frame
 void map_channels(const ola::DmxBuffer &data) {
   for (
     size_t channel_output_index = 0;
-    channel_output_index < channel_count;
+    channel_output_index < universe_channel_count;
     channel_output_index++
   ) {
     int map_value = my_map[channel_output_index];
-    // check if map_value is 
+    // check if map_value is
     if (map_value > -1) {
         // check if map_value is in range of input channels
         if (map_value < (int)data.Size()) {
@@ -235,6 +290,7 @@ void map_channels(const ola::DmxBuffer &data) {
         }
     }
   }
+  rescale_channels();
   // std::cout << "Send frame: " << std::endl << channels_out << std::endl;
   wrapper.GetClient()->SendDMX(
     universe_out,
@@ -320,8 +376,11 @@ void ola_setup() {
   system_state = state_running;
 }
 
-void ola_run(/* arguments */) {
+void ola_run() {
+  // this call blocks:
   wrapper.GetSelectServer()->Run();
+  // if this exits we switch back to waiting state:
+  std::cout << "map incoming channels." << std::endl;
   system_state = state_waiting;
 }
 
@@ -355,11 +414,16 @@ int main() {
   // read_config_from_file("my_map.config");
   read_config_from_file();
 
-  // ola_statemaschine()
+  // while (flag_run) {
+  //     ola_statemaschine()
+  // }
+
+  // manual cycle
   std::cout << "ola_waiting_for_connection()" << std::endl;
   ola_waiting_for_connection();
   std::cout << "ola_setup()" << std::endl;
   ola_setup();
   std::cout << "ola_run()" << std::endl;
   ola_run();
+
 }

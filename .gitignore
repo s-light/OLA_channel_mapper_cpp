@@ -1,6 +1,9 @@
 # ignore test files
 test/
 
+# libre office lock files
+.~lock.*#
+
 # Compiled
 *.out
 *.aria
