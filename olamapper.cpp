@@ -272,6 +272,29 @@ void rescale_channels() {
   }
 }
 
+
+// helper for delay:
+// http://www.cplusplus.com/forum/unices/10491/#msg49054
+#if defined(__WIN32__) || defined(_WIN32) || defined(WIN32) || defined(__WINDOWS__) || defined(__TOS_WIN__)
+
+  #include <windows.h>
+
+  inline void delay( unsigned long ms )
+    {
+    Sleep( ms );
+    }
+
+#else  /* presume POSIX */
+
+  #include <unistd.h>
+
+  inline void delay( unsigned long ms )
+    {
+    usleep( ms * 1000 );
+    }
+
+#endif
+
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // mapping
 
@@ -326,35 +349,41 @@ void dmx_receive_frame(const ola::client::DMXMetadata &metadata,
 
 void ola_connection_closed(ola::io::SelectServer *ss) {
   std::cerr << "Connection to olad was closed" << std::endl;
+  // system_state = state_waiting;
+  // stop SelectServer
   ss->Terminate();
-  system_state = state_waiting;
 }
 
 void ola_waiting_for_connection() {
   bool flag_connected = false;
-  try {
-    std::cout << "try wrapper.Setup() " << std::endl;
+  // try {
+   //  std::cout << "try wrapper.Setup() " << std::endl;
     bool available  = wrapper.Setup();
-    std::cout << "available: " << available << std::endl;
+   //  std::cout << "available: " << available << std::endl;
     if (available) {
       flag_connected = true;
-    }
-  }
+   } else {
+      // wait 500ms till next request
+      delay(500);
+   }
+  // }
   // catch (const std::exception &exc) {
   //   // catch anything thrown that derives from std::exception
   //   std::cerr << exc.what();
   //   std::cout << "error!!: " << exc.what() << std::endl;
   // }
-  catch (...) {
-    // catch all
-    // sleep microseconds
-    // usleep(500000);
-    std::cout << "error!!: " << std::endl;
-  }
+  // catch (...) {
+  //   // catch all
+  //   // sleep microseconds
+  //   // usleep(500000);
+  //   std::cout << "error!!: " << std::endl;
   // }
-
+  // }
+  std::cout << "flag_connected: " << flag_connected << std::endl;
   if (flag_connected) {
+   //   std::cout << "GetClient: " << std::endl;
     client = wrapper.GetClient();
+   //  std::cout << "switch to state_connected." << std::endl;
     system_state = state_connected;
   }
 }
@@ -383,7 +412,11 @@ void ola_run() {
   // this call blocks:
   wrapper.GetSelectServer()->Run();
   // if this exits we switch back to waiting state:
-  std::cout << "map incoming channels." << std::endl;
+  std::cout << "SelectServer exited." << std::endl;
+  std::cout << "wrapper.Cleanup()" << std::endl;
+  wrapper.Cleanup();
+  // std::cout << "wrapper" << std::endl;
+  std::cout << "switching to state_waiting" << std::endl;
   system_state = state_waiting;
 }
 
@@ -417,16 +450,18 @@ int main() {
   // read_config_from_file("my_map.config");
   read_config_from_file();
 
-  // while (flag_run) {
-  //     ola_statemaschine()
-  // }
+  bool flag_run = true;
+
+  while (flag_run) {
+      ola_statemaschine();
+  }
 
   // manual cycle
-  std::cout << "ola_waiting_for_connection()" << std::endl;
-  ola_waiting_for_connection();
-  std::cout << "ola_setup()" << std::endl;
-  ola_setup();
-  std::cout << "ola_run()" << std::endl;
-  ola_run();
+  // std::cout << "ola_waiting_for_connection()" << std::endl;
+  // ola_waiting_for_connection();
+  // std::cout << "ola_setup()" << std::endl;
+  // ola_setup();
+  // std::cout << "ola_run()" << std::endl;
+  // ola_run();
 
 }
