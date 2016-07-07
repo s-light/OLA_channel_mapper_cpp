@@ -415,7 +415,6 @@ void ola_run() {
   std::cout << "SelectServer exited." << std::endl;
   std::cout << "wrapper.Cleanup()" << std::endl;
   wrapper.Cleanup();
-  wrapper = ola::client::OlaClientWrapper(false);
   // std::cout << "wrapper" << std::endl;
   std::cout << "switching to state_waiting" << std::endl;
   system_state = state_waiting;
