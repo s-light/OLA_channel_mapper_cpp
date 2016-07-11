@@ -196,10 +196,11 @@ void parse_config_universe(std::string raw_input) {
   }
 }
 
-// void read_config_from_file(std::string filename) {
-void read_config_from_file() {
+// void read_config_from_file() {
+void read_config_from_file(std::string filename) {
   // std::string filename = "my_map.config";
-  std::ifstream myfile("./map.json");
+  std::ifstream myfile(filename);
+  // std::ifstream myfile("./map.json");
   if (myfile.is_open()) {
     std::string line;
     std::string raw_input;
@@ -227,7 +228,7 @@ void read_config_from_file() {
     std::cout << "parsing done."<< std::endl;
 
   } else {
-    std::cout << "Unable to open file."<< std::endl;
+    std::cout << "Unable to open file '" << filename << "'"<< std::endl;
   }
 }
 
@@ -444,11 +445,26 @@ void ola_statemaschine() {
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // main
 
-int main() {
+// adding commandline handling:
+// http://www.cplusplus.com/articles/DEN36Up4/
+int main(int argc, char* argv[]) {
   ola::InitLogging(ola::OLA_LOG_INFO, ola::OLA_LOG_STDERR);
-  // read map from file:
-  // read_config_from_file("my_map.config");
-  read_config_from_file();
+
+  // read config from file:
+  // default filename
+  std::string filename = "map.config";
+  // check if filename is given as commandline argument
+  // std::cout << argc << std::endl;
+  // std::cout << argv[0] << std::endl;
+  if (argc >= 2) {
+    // we got an filename for the config file.
+    std::cout << "filename: " << argv[1] << std::endl;
+    filename = argv[1];
+  } else {
+    std::cout << "using default filename: " << filename << std::endl;
+  }
+  read_config_from_file(filename);
+  // read_config_from_file();
 
   bool flag_run = true;
 
