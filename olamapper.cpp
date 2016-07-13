@@ -39,6 +39,7 @@ enum ola_state_t {
   state_waiting,
   state_connected,
   state_running,
+  state_exit,
 };
 
 ola_state_t system_state = state_undefined;
@@ -414,11 +415,11 @@ void ola_run() {
   wrapper.GetSelectServer()->Run();
   // if this exits we switch back to waiting state:
   std::cout << "SelectServer exited." << std::endl;
-  std::cout << "wrapper.Cleanup()" << std::endl;
-  wrapper.Cleanup();
+  // std::cout << "wrapper.Cleanup()" << std::endl;
+  // wrapper.Cleanup();
   // std::cout << "wrapper" << std::endl;
-  std::cout << "switching to state_waiting" << std::endl;
-  system_state = state_waiting;
+  std::cout << "switching to state_exit" << std::endl;
+  system_state = state_exit;
 }
 
 void ola_statemaschine() {
@@ -438,6 +439,10 @@ void ola_statemaschine() {
     case state_running : {
       // attention! blocks untill error..
       ola_run();
+    } break;
+    case state_exit : {
+      // exit loop
+      // flag_run = false;
     } break;
   }  // end switch
 }
@@ -466,13 +471,13 @@ int main(int argc, char* argv[]) {
   read_config_from_file(filename);
   // read_config_from_file();
 
-  bool flag_run = true;
+  // bool flag_run = true;
 
-  while (flag_run) {
+  while (system_state != state_exit) {
       ola_statemaschine();
   }
 
-  // manual cycle
+  // manual
   // std::cout << "ola_waiting_for_connection()" << std::endl;
   // ola_waiting_for_connection();
   // std::cout << "ola_setup()" << std::endl;
@@ -480,4 +485,5 @@ int main(int argc, char* argv[]) {
   // std::cout << "ola_run()" << std::endl;
   // ola_run();
 
+  std::cout << "end." << std::endl;
 }
