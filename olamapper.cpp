@@ -203,15 +203,15 @@ class OLAThread: public ola::thread::Thread {
 
     void handle_run_end(){
       // normal exit
-      std::cout << "switching to state_exit" << std::endl;
-      system_state = state_exit;
+      // std::cout << "switching to state_exit" << std::endl;
+      // system_state = state_exit;
       // autoreconnect
-      // std::cout << "client->Stop()" << std::endl;
-      // client->Stop();
-      // std::cout << "m_wrapper.Cleanup()" << std::endl;
-      // m_wrapper.Cleanup();
-      // std::cout << "switching to state_waiting" << std::endl;
-      // system_state = state_waiting;
+      std::cout << "client->Stop()" << std::endl;
+      client->Stop();
+      std::cout << "m_wrapper.Cleanup()" << std::endl;
+      m_wrapper.Cleanup();
+      std::cout << "switching to state_waiting" << std::endl;
+      system_state = state_waiting;
     }
 
     void ola_statemaschine() {
