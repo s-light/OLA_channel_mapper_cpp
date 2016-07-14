@@ -10,6 +10,7 @@
 // g++ -std=c++11 olamapper.cpp -o olamapper.out $(pkg-config --cflags --libs libola) -lsystemd
 
 
+// lsystemd available in package: lsystemd-dev
 #include <systemd/sd-daemon.h>
 
 #include <ola/DmxBuffer.h>
