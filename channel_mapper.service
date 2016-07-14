@@ -1,0 +1,54 @@
+# systemd service script for this channel_mapper script.
+# based on examples/information found at
+# https://www.freedesktop.org/wiki/Software/systemd/NetworkTarget/
+# https://www.freedesktop.org/software/systemd/man/systemd.unit.html#Before=
+#
+# to use it adapt the ExecStart command to your enviroment.
+#
+# copy to target with:
+#   sudo cp channel_mapper.service /etc/systemd/system/
+# enable service
+#   sudo systemctl enable channel_mapper.service
+# start
+#   sudo systemctl start channel_mapper.service
+# stop
+#   sudo systemctl stop channel_mapper.service
+# check status
+#   sudo systemctl status channel_mapper.service
+# disable service
+#   sudo systemctl disable channel_mapper.service
+# remove service file:
+#   sudo rm /etc/systemd/system/channel_mapper.service
+
+[Unit]
+Description=OLAD client for mapping channels.
+# Wants mean if this unit is started it also starts the wanted unit.
+# Wants=olad.service
+# Requires means that this is started and also stopped if the listed unit starts and stops.
+# Requires=olad.service
+# After means that this unit only starts if the listed unit is started
+# After=olad.service
+After=network.target
+
+[Service]
+# Type=simple is default
+Type=simple
+# run as user
+User=light
+# commandline
+ExecStart=/home/light/OLA_channel_mapper_cpp/olamapper.out /home/light/OLA_channel_mapper_cpp/map.json
+# redirect standard output to
+StandardOutput=null
+# if process exits (regardless fail or success) restart it.
+Restart=always
+# watchdog enabled with 10seconds interval
+WatchdogSec=10s
+
+
+
+[Install]
+# WantedBy means if the listed unit ist started this unit is also started.
+# start with system.
+# WantedBy=multi-user.target
+# WantedBy=olad.service
+Alias=channel_mapper.service
