@@ -1,8 +1,8 @@
 {
   "execPath": "/usr/bin/g++",
   "gccDefaultCFlags": "-Wall",
-  "gccDefaultCppFlags": "-Wall -std=c++11 -lsystemd",
+  "gccDefaultCppFlags": "-Wall -std=c++11",
   "gccErrorLimit": 15,
-  "gccIncludePaths": ".,./include,./path",
+  "gccIncludePaths": ".,./include,./path,$(pkg-config --cflags --libs libola libsystemd)",
   "gccSuppressWarnings": true
 }

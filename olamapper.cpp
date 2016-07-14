@@ -91,11 +91,13 @@ class OLAThread: public ola::thread::Thread {
     ola_state_t system_state = state_undefined;
 
     bool Start() {
+      std::cout << "switching to state_waiting" << std::endl;
       system_state = state_waiting;
       return ola::thread::Thread::Start();
     }
 
     void Stop() {
+      std::cout << "switching to state_exit" << std::endl;
       system_state = state_exit;
       m_wrapper.GetSelectServer()->Terminate();
       flag_run = false;
@@ -107,6 +109,9 @@ class OLAThread: public ola::thread::Thread {
     // Called when universe registration completes.
     void RegisterComplete(const ola::client::Result& result) {
       if (!result.Success()) {
+        // stop SelectServer
+        m_wrapper.GetSelectServer()->Terminate();
+        // with this terminate the Run() exits and all other things are handled there.
         OLA_WARN << "Failed to register universe: " << result.Error();
       }
     }
@@ -127,24 +132,23 @@ class OLAThread: public ola::thread::Thread {
     // void ola_connection_closed(ola::io::SelectServer *ss) {
     void ola_connection_closed() {
       std::cerr << "Connection to olad was closed" << std::endl;
-      // system_state = state_waiting;
       // stop SelectServer
       m_wrapper.GetSelectServer()->Terminate();
+      // with this terminate the Run() exits and all other things are handled there.
     }
 
     void ola_waiting_for_connection() {
       bool flag_connected = false;
       // try {
-       //  std::cout << "try m_wrapper.Setup() " << std::endl;
-        m_wrapper.Cleanup();
-        bool available  = m_wrapper.Setup();
-       //  std::cout << "available: " << available << std::endl;
-        if (available) {
-          flag_connected = true;
-       } else {
-          // wait 500ms till next request
-          delay(500);
-       }
+      std::cout << "m_wrapper.Setup() " << std::endl;
+      bool available  = m_wrapper.Setup();
+      std::cout << "available: " << available << std::endl;
+      if (available) {
+        flag_connected = true;
+      } else {
+        // wait 500ms till next request
+        delay(500);
+      }
       // }
       // catch (const std::exception &exc) {
       //   // catch anything thrown that derives from std::exception
@@ -162,7 +166,7 @@ class OLAThread: public ola::thread::Thread {
       if (flag_connected) {
        //   std::cout << "GetClient: " << std::endl;
         client = m_wrapper.GetClient();
-       //  std::cout << "switch to state_connected." << std::endl;
+        std::cout << "switching to state_connected" << std::endl;
         system_state = state_connected;
       }
     }
@@ -185,8 +189,7 @@ class OLAThread: public ola::thread::Thread {
         universe_in,
         ola::client::REGISTER,
         ola::NewSingleCallback(this, &OLAThread::RegisterComplete));
-      std::cout << "map incoming channels." << std::endl;
-
+      std::cout << "switching to state_running" << std::endl;
       system_state = state_running;
     }
 
@@ -195,12 +198,18 @@ class OLAThread: public ola::thread::Thread {
       m_wrapper.GetSelectServer()->Run();
       // if this exits we switch back to waiting state:
       std::cout << "SelectServer exited." << std::endl;
-      // std::cout << "m_wrapper.Cleanup()" << std::endl;
-      // m_wrapper.Cleanup();
-      // std::cout << "m_wrapper" << std::endl;
+      handle_run_end();
+    }
+
+    void handle_run_end(){
+      // normal exit
       std::cout << "switching to state_exit" << std::endl;
       system_state = state_exit;
-      // uncomment for autoreconnect
+      // autoreconnect
+      // std::cout << "client->Stop()" << std::endl;
+      // client->Stop();
+      // std::cout << "m_wrapper.Cleanup()" << std::endl;
+      // m_wrapper.Cleanup();
       // std::cout << "switching to state_waiting" << std::endl;
       // system_state = state_waiting;
     }
