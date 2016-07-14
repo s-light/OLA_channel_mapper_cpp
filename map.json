@@ -1,0 +1,23 @@
+{
+    "map": {
+        "channels": [
+          10,
+          9,
+          8,
+          7,
+          6,
+          5,
+          4,
+          3,
+          2,
+          1 
+        ]
+    },
+    "universe": {
+        "channel_count": 10,
+        "input": 1,
+        "output": 2,
+        "rescale_max": 65535,
+        "start_address": 1
+    }
+}

@@ -3,17 +3,25 @@
 
 // based on example from
 // http://docs.openlighting.org/ola/doc/latest/dmx_cpp_client_tutorial.html
+// threading addition based on
+// http://docs.openlighting.org/ola/doc/latest/cpp_client_tutorial.html#cpp_client_Thread
 
 // build for local:
-// g++ -std=c++11 olamapper.cpp -o olamapper.out $(pkg-config --cflags --libs libola)
+// g++ -std=c++11 olamapper.cpp -o olamapper.out $(pkg-config --cflags --libs libola) -lsystemd
 
 
+#include <systemd/sd-daemon.h>
 
 #include <ola/DmxBuffer.h>
 #include <ola/Logging.h>
 #include <ola/client/ClientWrapper.h>
 #include <ola/io/SelectServer.h>
+#include <ola/thread/Thread.h>
+#include <ola/Callback.h>
 
+//getenv
+#include <stdlib.h>
+// others
 #include <unistd.h>
 #include <string>
 #include <iostream>
@@ -26,25 +34,270 @@ uint16_t universe_channel_count = 240;
 uint16_t universe_rescale_max = 60000;
 static const uint16_t channel_count_MAX = 512;
 
-ola::client::OlaClientWrapper wrapper(false);
-ola::client::OlaClient *client;
-ola::DmxBuffer channels_out;
-
 int my_map[channel_count_MAX];
 
 
-enum ola_state_t {
-  state_undefined,
-  state_standby,
-  state_waiting,
-  state_connected,
-  state_running,
-  state_exit,
+bool flag_run = true;
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// helper
+
+// helper for delay:
+// http://www.cplusplus.com/forum/unices/10491/#msg49054
+#if defined(__WIN32__) || defined(_WIN32) || defined(WIN32) || defined(__WINDOWS__) || defined(__TOS_WIN__)
+
+  #include <windows.h>
+
+  inline void delay( unsigned long ms )
+    {
+    Sleep( ms );
+    }
+
+#else  /* presume POSIX */
+
+  #include <unistd.h>
+
+  inline void delay( unsigned long ms )
+    {
+    usleep( ms * 1000 );
+    }
+
+#endif
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// OLAThread class
+
+class OLAThread: public ola::thread::Thread {
+public:
+  // definitions
+  enum ola_state_t {
+    state_undefined,
+    state_standby,
+    state_waiting,
+    state_connected,
+    state_running,
+    state_exit,
+  };
+
+  ola_state_t system_state = state_undefined;
+
+  bool Start() {
+    system_state = state_waiting;
+    return ola::thread::Thread::Start();
+  }
+
+  void Stop() {
+    system_state = state_exit;
+    m_wrapper.GetSelectServer()->Terminate();
+  }
+
+  //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  // ola things
+
+  // Called when universe registration completes.
+  void RegisterComplete(const ola::client::Result& result) {
+    if (!result.Success()) {
+      OLA_WARN << "Failed to register universe: " << result.Error();
+    }
+  }
+
+  // Called when new DMX data arrives.
+  void dmx_receive_frame(const ola::client::DMXMetadata &metadata,
+    const ola::DmxBuffer &data) {
+    // std::cout << "Received " << data.Size()
+    // << " channels for universe " << metadata.universe
+    // << ", priority " << static_cast<int>(metadata.priority)
+    // << std::endl;
+    map_channels(data);
+  }
+
+  //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  // ola state helper
+
+  // void ola_connection_closed(ola::io::SelectServer *ss) {
+  void ola_connection_closed() {
+    std::cerr << "Connection to olad was closed" << std::endl;
+    // system_state = state_waiting;
+    // stop SelectServer
+    m_wrapper.GetSelectServer()->Terminate();
+  }
+
+  void ola_waiting_for_connection() {
+    bool flag_connected = false;
+    // try {
+     //  std::cout << "try m_wrapper.Setup() " << std::endl;
+      bool available  = m_wrapper.Setup();
+     //  std::cout << "available: " << available << std::endl;
+      if (available) {
+        flag_connected = true;
+     } else {
+        // wait 500ms till next request
+        delay(500);
+     }
+    // }
+    // catch (const std::exception &exc) {
+    //   // catch anything thrown that derives from std::exception
+    //   std::cerr << exc.what();
+    //   std::cout << "error!!: " << exc.what() << std::endl;
+    // }
+    // catch (...) {
+    //   // catch all
+    //   // sleep microseconds
+    //   // usleep(500000);
+    //   std::cout << "error!!: " << std::endl;
+    // }
+    // }
+    std::cout << "flag_connected: " << flag_connected << std::endl;
+    if (flag_connected) {
+     //   std::cout << "GetClient: " << std::endl;
+      client = m_wrapper.GetClient();
+     //  std::cout << "switch to state_connected." << std::endl;
+      system_state = state_connected;
+    }
+  }
+
+  void ola_setup() {
+    client->SetCloseHandler(
+      ola::NewSingleCallback(
+        this,
+        &OLAThread::ola_connection_closed
+      )
+    );
+
+    // clean channels_out buffer
+    channels_out.Blackout();
+
+    // Set the callback and register our interest in this universe
+    client->SetDMXCallback(
+      ola::NewCallback(this, &OLAThread::dmx_receive_frame));
+    client->RegisterUniverse(
+      universe_in,
+      ola::client::REGISTER,
+      ola::NewSingleCallback(this, &OLAThread::RegisterComplete));
+    std::cout << "map incoming channels." << std::endl;
+
+    system_state = state_running;
+  }
+
+  void ola_run() {
+    // this call blocks:
+    m_wrapper.GetSelectServer()->Run();
+    // if this exits we switch back to waiting state:
+    std::cout << "SelectServer exited." << std::endl;
+    // std::cout << "m_wrapper.Cleanup()" << std::endl;
+    // m_wrapper.Cleanup();
+    // std::cout << "m_wrapper" << std::endl;
+    std::cout << "switching to state_exit" << std::endl;
+    system_state = state_exit;
+  }
+
+  void ola_statemaschine() {
+    switch (system_state) {
+      case state_undefined : {
+        system_state = state_waiting;
+      } break;
+      case state_standby : {
+        system_state = state_waiting;
+      } break;
+      case state_waiting : {
+        ola_waiting_for_connection();
+      } break;
+      case state_connected : {
+        ola_setup();
+      } break;
+      case state_running : {
+        // attention! blocks untill error..
+        ola_run();
+      } break;
+      case state_exit : {
+        // exit loop
+        // flag_run = false;
+      } break;
+    }  // end switch
+  }
+
+  //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  // mapping
+
+  // map data to new channels and send frame
+  void map_channels(const ola::DmxBuffer &data) {
+    for (
+      size_t channel_output_index = 0;
+      channel_output_index < universe_channel_count;
+      channel_output_index++
+    ) {
+      int map_value = my_map[channel_output_index];
+      // check if map_value is
+      if (map_value > -1) {
+          // check if map_value is in range of input channels
+          if (map_value < (int)data.Size()) {
+            channels_out.SetChannel(
+              channel_output_index,
+              data.Get(map_value));
+          }
+      }
+    }
+    rescale_channels();
+    // std::cout << "Send frame: " << std::endl << channels_out << std::endl;
+    m_wrapper.GetClient()->SendDMX(
+      universe_out,
+      channels_out,
+      ola::client::SendDMXArgs());
+  }
+
+  void rescale_channels() {
+    for (
+      size_t channel_output_index = 0;
+      channel_output_index < universe_channel_count;
+      channel_output_index = channel_output_index +2
+    ) {
+        uint8_t value_h = 0;
+        uint8_t value_l = 0;
+        uint16_t value = 0;
+
+        // get channel values
+        value_h = channels_out.Get(channel_output_index);
+        value_l = channels_out.Get(channel_output_index+1);
+
+        // combine to 16bit value
+        value = (value_h << 8) | value_l;
+
+        // rescale:
+        uint32_t value_calc = value * universe_rescale_max;
+        value = value_calc / 65535;
+
+        // splitt to 8itt values
+        value_h = value >> 8;
+        value_l = value;
+
+        // set channel values
+        channels_out.SetChannel(
+          channel_output_index,
+          value_h
+        );
+        channels_out.SetChannel(
+          channel_output_index+1,
+          value_l
+        );
+    }
+  }
+
+protected:
+  void *Run() {
+    // m_wrapper.GetSelectServer()->Run();
+    while (system_state != state_exit) {
+        ola_statemaschine();
+    }
+    return NULL;
+  }
+
+  ola::client::OlaClientWrapper m_wrapper;
+  ola::client::OlaClient *client;
+  ola::DmxBuffer channels_out;
 };
 
-ola_state_t system_state = state_undefined;
 
-bool flag_run = true;
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // configuration things
@@ -234,217 +487,35 @@ void read_config_from_file(std::string filename) {
 }
 
 
-//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// helper
 
-void rescale_channels() {
-  for (
-    size_t channel_output_index = 0;
-    channel_output_index < universe_channel_count;
-    channel_output_index = channel_output_index +2
-  ) {
-      uint8_t value_h = 0;
-      uint8_t value_l = 0;
-      uint16_t value = 0;
+// watchdog things
+// sd_notifyf(0, "WATCHDOG=1");
+// sd_notifyf(0, "READY=1\n"
+//         "STATUS=Processing requests...\n"
+//         "MAINPID=%lu",
+//         (unsigned long) getpid());
 
-      // get channel values
-      value_h = channels_out.Get(channel_output_index);
-      value_l = channels_out.Get(channel_output_index+1);
+int watchdog_ping() {
 
-      // combine to 16bit value
-      value = (value_h << 8) | value_l;
+  // get WatchdogSec value from service file
+  char * env;
+  int interval=0;
+  bool flag_run = true;
 
-      // rescale:
-      uint32_t value_calc = value * universe_rescale_max;
-      value = value_calc / 65535;
-
-      // splitt to 8itt values
-      value_h = value >> 8;
-      value_l = value;
-
-      // set channel values
-      channels_out.SetChannel(
-        channel_output_index,
-        value_h
-      );
-      channels_out.SetChannel(
-        channel_output_index+1,
-        value_l
-      );
+  env = getenv("WATCHDOG_USEC");
+  if(env){
+    interval = atoi(env)/(2*1000000);
   }
-}
+  /* Ping systsemd once you are done with Init */
+  sd_notify (0, "WATCHDOG=1");
 
-
-// helper for delay:
-// http://www.cplusplus.com/forum/unices/10491/#msg49054
-#if defined(__WIN32__) || defined(_WIN32) || defined(WIN32) || defined(__WINDOWS__) || defined(__TOS_WIN__)
-
-  #include <windows.h>
-
-  inline void delay( unsigned long ms )
-    {
-    Sleep( ms );
-    }
-
-#else  /* presume POSIX */
-
-  #include <unistd.h>
-
-  inline void delay( unsigned long ms )
-    {
-    usleep( ms * 1000 );
-    }
-
-#endif
-
-//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// mapping
-
-// map data to new channels and send frame
-void map_channels(const ola::DmxBuffer &data) {
-  for (
-    size_t channel_output_index = 0;
-    channel_output_index < universe_channel_count;
-    channel_output_index++
-  ) {
-    int map_value = my_map[channel_output_index];
-    // check if map_value is
-    if (map_value > -1) {
-        // check if map_value is in range of input channels
-        if (map_value < (int)data.Size()) {
-          channels_out.SetChannel(
-            channel_output_index,
-            data.Get(map_value));
-        }
-    }
+  /* Now go for periodic notification */
+  while(flag_run){
+    sleep(interval);
+    // ping watchdog with 'keep-alive'
+    sd_notify(0, "WATCHDOG=1");
   }
-  rescale_channels();
-  // std::cout << "Send frame: " << std::endl << channels_out << std::endl;
-  wrapper.GetClient()->SendDMX(
-    universe_out,
-    channels_out,
-    ola::client::SendDMXArgs());
-}
-
-//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ola things
-
-// Called when universe registration completes.
-void RegisterComplete(const ola::client::Result& result) {
-  if (!result.Success()) {
-    OLA_WARN << "Failed to register universe: " << result.Error();
-  }
-}
-
-// Called when new DMX data arrives.
-void dmx_receive_frame(const ola::client::DMXMetadata &metadata,
-  const ola::DmxBuffer &data) {
-  // std::cout << "Received " << data.Size()
-  // << " channels for universe " << metadata.universe
-  // << ", priority " << static_cast<int>(metadata.priority)
-  // << std::endl;
-  map_channels(data);
-}
-
-//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ola state helper
-
-void ola_connection_closed(ola::io::SelectServer *ss) {
-  std::cerr << "Connection to olad was closed" << std::endl;
-  // system_state = state_waiting;
-  // stop SelectServer
-  ss->Terminate();
-}
-
-void ola_waiting_for_connection() {
-  bool flag_connected = false;
-  // try {
-   //  std::cout << "try wrapper.Setup() " << std::endl;
-    bool available  = wrapper.Setup();
-   //  std::cout << "available: " << available << std::endl;
-    if (available) {
-      flag_connected = true;
-   } else {
-      // wait 500ms till next request
-      delay(500);
-   }
-  // }
-  // catch (const std::exception &exc) {
-  //   // catch anything thrown that derives from std::exception
-  //   std::cerr << exc.what();
-  //   std::cout << "error!!: " << exc.what() << std::endl;
-  // }
-  // catch (...) {
-  //   // catch all
-  //   // sleep microseconds
-  //   // usleep(500000);
-  //   std::cout << "error!!: " << std::endl;
-  // }
-  // }
-  std::cout << "flag_connected: " << flag_connected << std::endl;
-  if (flag_connected) {
-   //   std::cout << "GetClient: " << std::endl;
-    client = wrapper.GetClient();
-   //  std::cout << "switch to state_connected." << std::endl;
-    system_state = state_connected;
-  }
-}
-
-void ola_setup() {
-  client->SetCloseHandler(
-    ola::NewSingleCallback(
-      ola_connection_closed,
-      wrapper.GetSelectServer() ));
-
-  // clean channels_out buffer
-  channels_out.Blackout();
-
-  // Set the callback and register our interest in this universe
-  client->SetDMXCallback(ola::NewCallback(&dmx_receive_frame));
-  client->RegisterUniverse(
-    universe_in,
-    ola::client::REGISTER,
-    ola::NewSingleCallback(&RegisterComplete));
-  std::cout << "map incoming channels." << std::endl;
-
-  system_state = state_running;
-}
-
-void ola_run() {
-  // this call blocks:
-  wrapper.GetSelectServer()->Run();
-  // if this exits we switch back to waiting state:
-  std::cout << "SelectServer exited." << std::endl;
-  // std::cout << "wrapper.Cleanup()" << std::endl;
-  // wrapper.Cleanup();
-  // std::cout << "wrapper" << std::endl;
-  std::cout << "switching to state_exit" << std::endl;
-  system_state = state_exit;
-}
-
-void ola_statemaschine() {
-  switch (system_state) {
-    case state_undefined : {
-      system_state = state_waiting;
-    } break;
-    case state_standby : {
-      system_state = state_waiting;
-    } break;
-    case state_waiting : {
-      ola_waiting_for_connection();
-    } break;
-    case state_connected : {
-      ola_setup();
-    } break;
-    case state_running : {
-      // attention! blocks untill error..
-      ola_run();
-    } break;
-    case state_exit : {
-      // exit loop
-      // flag_run = false;
-    } break;
-  }  // end switch
+  return 0;
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -457,7 +528,7 @@ int main(int argc, char* argv[]) {
 
   // read config from file:
   // default filename
-  std::string filename = "map.config";
+  std::string filename = "map.json";
   // check if filename is given as commandline argument
   // std::cout << argc << std::endl;
   // std::cout << argv[0] << std::endl;
@@ -473,17 +544,18 @@ int main(int argc, char* argv[]) {
 
   // bool flag_run = true;
 
-  while (system_state != state_exit) {
-      ola_statemaschine();
+  OLAThread ola_thread;
+  if (!ola_thread.Start()) {
+    std::cerr << "Failed to start OLA thread" << std::endl;
+    exit(1);
   }
 
-  // manual
-  // std::cout << "ola_waiting_for_connection()" << std::endl;
-  // ola_waiting_for_connection();
-  // std::cout << "ola_setup()" << std::endl;
-  // ola_setup();
-  // std::cout << "ola_run()" << std::endl;
-  // ola_run();
+  // blocks untill program is terminated
+  watchdog_ping();
+
+  // exit
+  ola_thread.Stop();
+  ola_thread.Join();
 
   std::cout << "end." << std::endl;
 }

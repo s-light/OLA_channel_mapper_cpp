@@ -1,9 +1,6 @@
 # ignore test files
 test/
 
-# ignore default config file
-map.json
-
 # libre office lock files
 .~lock.*#
 
