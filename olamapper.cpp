@@ -70,6 +70,13 @@ bool flag_run = true;
 
 class OLAThread: public ola::thread::Thread {
 public:
+
+  OLAThread() :
+    m_wrapper(false)
+  {
+    // nothing to do..
+  }
+
   // definitions
   enum ola_state_t {
     state_undefined,
@@ -90,6 +97,7 @@ public:
   void Stop() {
     system_state = state_exit;
     m_wrapper.GetSelectServer()->Terminate();
+    flag_run = false;
   }
 
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -127,6 +135,7 @@ public:
     bool flag_connected = false;
     // try {
      //  std::cout << "try m_wrapper.Setup() " << std::endl;
+      m_wrapper.Cleanup();
       bool available  = m_wrapper.Setup();
      //  std::cout << "available: " << available << std::endl;
       if (available) {
@@ -190,6 +199,9 @@ public:
     // std::cout << "m_wrapper" << std::endl;
     std::cout << "switching to state_exit" << std::endl;
     system_state = state_exit;
+    // uncomment for autoreconnect
+    // std::cout << "switching to state_waiting" << std::endl;
+    // system_state = state_waiting;
   }
 
   void ola_statemaschine() {
@@ -289,6 +301,7 @@ protected:
     while (system_state != state_exit) {
         ola_statemaschine();
     }
+    flag_run = false;
     return NULL;
   }
 
@@ -296,8 +309,6 @@ protected:
   ola::client::OlaClient *client;
   ola::DmxBuffer channels_out;
 };
-
-
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // configuration things
@@ -486,32 +497,24 @@ void read_config_from_file(std::string filename) {
   }
 }
 
-
-
-// watchdog things
-// sd_notifyf(0, "WATCHDOG=1");
-// sd_notifyf(0, "READY=1\n"
-//         "STATUS=Processing requests...\n"
-//         "MAINPID=%lu",
-//         (unsigned long) getpid());
-
 int watchdog_ping() {
-
   // get WatchdogSec value from service file
   char * env;
-  int interval=0;
-  bool flag_run = true;
+  int interval_ms=0;
 
   env = getenv("WATCHDOG_USEC");
   if(env){
-    interval = atoi(env)/(2*1000000);
+    // get ms
+    interval_ms = atoi(env)/1000;
+    // set interval to half the watchdog time
+    interval_ms = interval_ms / 2;
   }
-  /* Ping systsemd once you are done with Init */
+  // no we are ready
   sd_notify (0, "WATCHDOG=1");
 
-  /* Now go for periodic notification */
   while(flag_run){
-    sleep(interval);
+    // sleep(interval_ms/1000);
+    delay(interval_ms);
     // ping watchdog with 'keep-alive'
     sd_notify(0, "WATCHDOG=1");
   }
@@ -540,15 +543,16 @@ int main(int argc, char* argv[]) {
     std::cout << "using default filename: " << filename << std::endl;
   }
   read_config_from_file(filename);
-  // read_config_from_file();
 
-  // bool flag_run = true;
 
   OLAThread ola_thread;
   if (!ola_thread.Start()) {
     std::cerr << "Failed to start OLA thread" << std::endl;
     exit(1);
   }
+
+  sd_notifyf(0, "READY=1\n"
+    "STATUS=Config loaded. Thread started.");
 
   // blocks untill program is terminated
   watchdog_ping();
