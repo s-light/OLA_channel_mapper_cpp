@@ -208,8 +208,9 @@ class OLAThread: public ola::thread::Thread {
       // autoreconnect
       std::cout << "client->Stop()" << std::endl;
       client->Stop();
-      std::cout << "m_wrapper.Cleanup()" << std::endl;
-      m_wrapper.Cleanup();
+      std::cout << "m_wrapper.Cleanup(): ";
+      bool cleanedup = m_wrapper.Cleanup();
+      std::cout << cleanedup << std::endl;
       std::cout << "switching to state_waiting" << std::endl;
       system_state = state_waiting;
     }
